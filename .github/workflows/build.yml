@@ -82,7 +82,7 @@ jobs:
         done
         
         # Remove unnecessary services
-        for pkg in sqm vnstat smartdns ddns wol upnp irqbalance bpftune banudpip mqvpn; do
+        for pkg in sqm smartdns ddns wol upnp irqbalance bpftune banudpip mqvpn; do
           sed -i "/CONFIG_PACKAGE_.*${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
@@ -91,8 +91,8 @@ jobs:
           sed -i "/CONFIG_PACKAGE_luci-theme-${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
-        # Remove heavy tools
-        for pkg in mc nano htop iperf iftop tcpdump tracebox iptraf-ng; do
+        # Remove heavy tools (keep network monitoring)
+        for pkg in mc nano htop; do
           sed -i "/CONFIG_PACKAGE_.*${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
@@ -108,8 +108,8 @@ jobs:
           sed -i "/CONFIG_PACKAGE_kmod-usb-serial-${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
-        # Disable the speedtest app
-        sed -i '/CONFIG_PACKAGE_speedtestcpp.*=y\|=m/d' "$CFG" 2>/dev/null || true
+        # Keep speedtestcpp for bandwidth testing
+        echo 'CONFIG_PACKAGE_speedtestcpp=y' >> "$CFG" 2>/dev/null || true
         
         echo "=== After stripping ==="
         grep -c 'CONFIG_PACKAGE.*=y\|=m' "$CFG" || true
