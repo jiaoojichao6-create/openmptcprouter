@@ -1,0 +1,88 @@
+name: Build OMPTCProuter for BPi-R4
+
+on:
+  push:
+    branches: [master, main, develop]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target device'
+        required: true
+        default: 'bpi-r4'
+        type: choice
+        options:
+          - bpi-r4
+          - bpi-r4-poe
+      kernel:
+        description: 'Kernel version'
+        required: true
+        default: '6.12'
+        type: choice
+        options:
+          - '6.12'
+          - '6.18'
+
+env:
+  REPO_URL: 'https://github.com/ysurac/openmptcprouter'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        OMR_TARGET: [bpi-r4]
+        OMR_KERNEL: [6.12, 6.18]
+      fail-fast: false
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Prepare build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 gcc-multilib libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx-ucl libelf-dev autoconf automake libtool autopoint device-tree-compiler python3-docutils rsync wget curl file
+
+    - name: Free disk space
+      run: |
+        sudo swapoff -a >/dev/null 2>&1 || true
+        sudo rm -f /swapfile >/dev/null 2>&1 || true
+        sudo apt-get autoremove -y >/dev/null 2>&1 || true
+        sudo apt-get autoclean -y >/dev/null 2>&1 || true
+        sudo rm -rf /usr/local/share/boost >/dev/null 2>&1 || true
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY" >/dev/null 2>&1 || true
+        sudo rm -rf /usr/share/dotnet >/dev/null 2>&1 || true
+        sudo rm -rf /opt/ghc >/dev/null 2>&1 || true
+        df -h
+
+    - name: Build toolchain
+      env:
+        OMR_TARGET: ${{ matrix.OMR_TARGET }}
+        OMR_KERNEL: ${{ matrix.OMR_KERNEL }}
+        OMR_FEED_SRC: ${{ github.ref_name }}
+      run: |
+        OMR_KERNEL="${OMR_KERNEL}" OMR_FEED_SRC="${OMR_FEED_SRC}" sh build.sh prepare {tools,toolchain}/install -j$(nproc) || \
+        OMR_KERNEL="${OMR_KERNEL}" OMR_FEED_SRC="${OMR_FEED_SRC}" sh build.sh prepare {tools,toolchain}/install -j1 V=s
+
+    - name: Build packages
+      env:
+        OMR_TARGET: ${{ matrix.OMR_TARGET }}
+        OMR_KERNEL: ${{ matrix.OMR_KERNEL }}
+      run: |
+        make IGNORE_ERRORS=m -C $OMR_TARGET/$OMR_KERNEL/source package/{compile,install,index} -j$(nproc) || \
+        make IGNORE_ERRORS=m -C $OMR_TARGET/$OMR_KERNEL/source package/{compile,install,index} -j1 V=s
+
+    - name: Build firmware image
+      env:
+        OMR_TARGET: ${{ matrix.OMR_TARGET }}
+        OMR_KERNEL: ${{ matrix.OMR_KERNEL }}
+      run: |
+        make IGNORE_ERRORS=m -C $OMR_TARGET/$OMR_KERNEL/source target/install -j$(nproc) || \
+        make IGNORE_ERRORS=m -C $OMR_TARGET/$OMR_KERNEL/source target/install -j1 V=s
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: openmptcprouter-${{ matrix.OMR_TARGET }}-kernel${{ matrix.OMR_KERNEL }}
+        path: ${{ matrix.OMR_TARGET }}/${{ matrix.OMR_KERNEL }}/source/bin
+        overwrite: true
