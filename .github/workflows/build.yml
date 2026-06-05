@@ -104,9 +104,12 @@ jobs:
         echo "=== After stripping ==="
         grep -c 'CONFIG_PACKAGE.*=y\|=m' "$CFG" || true
         
-        # Ensure MPTCP core is enabled
+        # Ensure MPTCP core + BPF schedulers are enabled
         echo 'CONFIG_PACKAGE_mptcp=y' >> "$CFG"
         echo 'CONFIG_PACKAGE_luci-app-mptcp=y' >> "$CFG"
+        for bpfpkg in mptcp-bpf-minrtt mptcp-bpf-burst mptcp-bpf-rr mptcp-bpf-bkup mptcp-bpf-first mptcp-bpf-red bpftool-full; do
+          echo "CONFIG_PACKAGE_${bpfpkg}=y" >> "$CFG"
+        done
         
         # Re-run defconfig to resolve dependencies
         make -C "$OMR_TARGET/$OMR_KERNEL/source" defconfig
