@@ -76,37 +76,27 @@ jobs:
         # Remove the bloated full package
         sed -i '/CONFIG_PACKAGE_openmptcprouter-full=y/d' "$CFG"
         
-        # Remove all the VPN/shadowsocks packages that omr-tracker pulls in
-        for pkg in v2ray xray shadowsocks openvpn wireguard glorytun mlvpn dsvpn softether; do
+        # Remove only VPN/encryption/tunnel bloat
+        for pkg in v2ray xray shadowsocks openvpn wireguard glorytun mlvpn dsvpn softether mqvpn; do
           sed -i "/CONFIG_PACKAGE_.*${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
-        # Remove unnecessary services
-        for pkg in sqm smartdns ddns wol upnp irqbalance bpftune banudpip mqvpn; do
-          sed -i "/CONFIG_PACKAGE_.*${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
-        done
+        # Keep ALL network infrastructure services:
+        # sqm(QoS), smartdns, ddns, wol, upnp, bpftune, banudpip, irqbalance, vnstat
         
-        # Remove extra themes (keep only bootstrap)
+        # Remove extra LuCI themes (keep only bootstrap)
         for pkg in argon alpha design material openwrt-2020; do
           sed -i "/CONFIG_PACKAGE_luci-theme-${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
-        # Remove heavy tools (keep network monitoring)
+        # Remove non-networking heavy tools (keep all network monitoring)
         for pkg in mc nano htop; do
           sed -i "/CONFIG_PACKAGE_.*${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
         done
         
-        # Remove USB modem drivers (keep only essential ones)
-        # Keep: usb-serial, usb-serial-option, usb-net, usb-net-qmi-wwan
-        # Remove: all the vendor-specific ethernet adapters
-        for pkg in asix ax88179 cdc-eem dm9601 hso ipheth kalmia kaweth mcs7830 pegasus sierrawireless smsc95xx sr9700 rtl8150 rtl8152; do
-          sed -i "/CONFIG_PACKAGE_kmod-usb-net-${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
-        done
-        
-        # Remove serial drivers for obscure USB-serial adapters
-        for pkg in ark3116 belkin ch341 cp210x cypress-m8 ftdi garmin ipw ir-keymap metro-usb mos7720 mos7840 navman omninet oti6858 pl2303 quatech2 sierrawireless simple spcp8x5 ti-usb upd78f0731 visor whiteheat; do
-          sed -i "/CONFIG_PACKAGE_kmod-usb-serial-${pkg}.*=y\|=m/d" "$CFG" 2>/dev/null || true
-        done
+        # Keep ALL USB network drivers (USB Ethernet adapters)
+        # Keep ALL USB serial / modem drivers (4G/5G communication modules)
+        # No kmod stripping - network & comm drivers stay untouched
         
         # Keep speedtestcpp for bandwidth testing
         echo 'CONFIG_PACKAGE_speedtestcpp=y' >> "$CFG" 2>/dev/null || true
