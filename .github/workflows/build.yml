@@ -114,6 +114,112 @@ jobs:
         # Re-run defconfig to resolve dependencies
         make -C "$OMR_TARGET/$OMR_KERNEL/source" defconfig
 
+    - name: Embed system optimization defaults into firmware
+      env:
+        OMR_TARGET: ${{ matrix.OMR_TARGET }}
+        OMR_KERNEL: ${{ matrix.OMR_KERNEL }}
+      run: |
+        FILES_DIR="$OMR_TARGET/$OMR_KERNEL/source/files"
+        mkdir -p "$FILES_DIR/etc/sysctl.d"
+        mkdir -p "$FILES_DIR/etc/uci-defaults"
+        mkdir -p "$FILES_DIR/root"
+
+        # === 1. Kernel sysctl tuning for optimal 4G/5G aggregation ===
+        cat > "$FILES_DIR/etc/sysctl.d/11-omr-optimization.conf" << 'SYSCONF'
+# OpenMPTCProuter optimization for 4G/5G multi-WAN aggregation
+# Applied at boot time
+
+# --- Congestion control: BBR2 is best for cellular ---
+net.ipv4.tcp_congestion_control = bbr2
+# Use fq qdisc for fair queuing (required for BBR)
+net.core.default_qdisc = fq
+
+# --- TCP performance tuning ---
+# Don't reset cwnd after idle period
+net.ipv4.tcp_slow_start_after_idle = 0
+# Enable MTU probing to avoid PMTU black holes
+net.ipv4.tcp_mtu_probing = 1
+# Increase TCP buffer autotuning limits
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 1800
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 3
+SYSCONF
+
+        # === 2. First-boot UCI defaults (runs once after flashing) ===
+        cat > "$FILES_DIR/etc/uci-defaults/99-omr-optimization" << 'UCIBOOT'
+#!/bin/sh
+# OpenMPTCProuter first-boot optimization
+# Runs once after flashing, then self-deletes
+
+sleep 3
+
+# Set default MPTCP scheduler to minrtt (best for heterogeneous 5G)
+sysctl -w net.mptcp.scheduler="minrtt" 2>/dev/null || true
+
+# Enable TCP Low Latency mode + dynamic master selection
+if uci get openmptcprouter.advanced.tcp_low_latency >/dev/null 2>&1; then
+  uci set openmptcprouter.advanced.tcp_low_latency='1'
+  uci set openmptcprouter.advanced.master_dynamic='1'
+  uci commit openmptcprouter
+fi
+
+# Enable flow offloading for faster forwarding
+if uci get firewall.@defaults[0].flow_offloading >/dev/null 2>&1; then
+  uci set firewall.@defaults[0].flow_offloading='1'
+  uci commit firewall
+fi
+
+exit 0
+UCIBOOT
+        chmod +x "$FILES_DIR/etc/uci-defaults/99-omr-optimization"
+
+        # === 3. On-router test script ===
+        cat > "$FILES_DIR/root/omr-test.sh" << 'TESTSCRIPT'
+#!/bin/sh
+# OMR post-install test suite. Run: sh /root/omr-test.sh
+
+PASS=0; FAIL=0
+pass() { echo "[PASS] $1"; PASS=$((PASS+1)); }
+fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
+info() { echo "[INFO] $1"; }
+
+echo "=== OMR Test Suite ==="
+
+# 1. System
+uname -a && pass "Kernel" || fail "Kernel"
+
+# 2. MPTCP
+if [ -f /proc/sys/net/mptcp/enabled ]; then
+  [ "$(cat /proc/sys/net/mptcp/enabled)" = "1" ] && pass "MPTCP enabled" || fail "MPTCP disabled"
+  info "Scheduler: $(cat /proc/sys/net/mptcp/scheduler 2>/dev/null || echo N/A)"
+  info "Congestion: $(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)"
+else
+  fail "No MPTCP sysfs"
+fi
+
+# 3. Connectivity
+ping -c 2 -W 3 8.8.8.8 >/dev/null 2>&1 && pass "Internet" || fail "No internet"
+host -W 3 www.baidu.com >/dev/null 2>&1 && pass "DNS" || info "DNS check"
+
+# 4. BPF schedulers
+for sched in minrtt burst rr; do
+  ls /sys/fs/bpf/mptcp/scheds/$sched 2>/dev/null && pass "BPF $sched" || info "BPF $sched not loaded"
+done
+
+echo "=== $PASS passed, $FAIL failed ==="
+TESTSCRIPT
+        chmod +x "$FILES_DIR/root/omr-test.sh"
+
+        echo "=== Embedded optimization files ==="
+        find "$FILES_DIR" -type f
+
     - name: Build packages
       env:
         OMR_TARGET: ${{ matrix.OMR_TARGET }}
